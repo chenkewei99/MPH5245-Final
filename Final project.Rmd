@@ -1,0 +1,211 @@
+---
+title: "Data Cleaning for Heart Disease Study"
+author: "Kewei Chen"
+date: "12.05.2024"
+output: html_document
+---
+
+```{r}
+# Install necessary packages if not already installed
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(janitor)) install.packages("janitor")
+
+# Load libraries
+library(tidyverse)
+library(janitor)
+
+```
+
+```{r}
+# Load the data
+file_path <- "/Users/ckw/Desktop/MPH 5245/heart_attack_prediction_dataset.csv" 
+heart_data <- read.csv(file_path)
+
+# Preview the dataset
+head(heart_data)
+```
+```{r}
+# Clean column names for consistency
+heart_data <- heart_data %>%
+  clean_names()
+
+# View cleaned column names
+colnames(heart_data)
+```
+```{r}
+# Check for missing values in the dataset
+missing_summary <- heart_data %>%
+  summarise(across(everything(), ~ sum(is.na(.))))
+
+# Display missing values
+missing_summary
+```
+```{r}
+# Select relevant columns for analysis
+heart_data_clean <- heart_data %>%
+  select(patient_id, age, sex, cholesterol, blood_pressure, exercise_hours_per_week,
+         smoking, bmi, physical_activity_days_per_week, heart_attack_risk)
+
+# View the selected dataset
+head(heart_data_clean)
+```
+```{r}
+# Recode physical activity levels
+heart_data_clean <- heart_data_clean %>%
+  mutate(
+    physical_activity_level = case_when(
+      physical_activity_days_per_week == 0 ~ "Sedentary",
+      physical_activity_days_per_week >= 1 & physical_activity_days_per_week <= 3 ~ "Low",
+      physical_activity_days_per_week >= 4 ~ "Active"
+    ),
+    heart_attack_risk = as.factor(heart_attack_risk) # Convert to factor for modeling
+  )
+
+# View transformed dataset
+head(heart_data_clean)
+```
+```{r}
+# Remove outliers for numerical columns (e.g., cholesterol, BMI, etc.)
+heart_data_clean <- heart_data_clean %>%
+  filter(
+    between(cholesterol, 100, 400), # Cholesterol within reasonable range
+    between(bmi, 15, 50),           # BMI within reasonable range
+    between(exercise_hours_per_week, 0, 20) # Exercise hours in a reasonable range
+  )
+
+# View cleaned dataset
+summary(heart_data_clean)
+```
+```{r}
+## Filter for Male Data
+heart_data_clean <- heart_data_clean %>%
+  filter(sex == "Male")
+
+# Confirm only male data remains
+table(heart_data_clean$sex)
+```
+
+```{r}
+# Save the cleaned dataset for analysis
+write.csv(heart_data_clean, "/Users/ckw/Desktop/MPH 5245/cleaned_heart_data.csv", row.names = FALSE)
+```
+
+```{r}
+# Load necessary libraries
+if(!require(DiagrammeR)) install.packages("DiagrammeR")
+library(DiagrammeR)
+
+# Create the flowchart
+flowchart <- grViz("
+digraph flowchart {
+  graph [rankdir = TB, fontsize = 10]
+  
+  # Define nodes
+  node [shape = rectangle, style = filled, fillcolor = lightblue]
+  
+  raw_data [label = 'Raw Data (All Participants)\\nN = Total']
+  filter_male [label = 'Filter: Males Only\\nN = After Filter']
+  filter_complete [label = 'Filter: Complete Data\\nN = After Completeness']
+  filter_outliers [label = 'Filter: Outliers Removed\\nN = Final Dataset']
+  
+  # Define edges
+  raw_data -> filter_male [label = 'Excluding Non-Males']
+  filter_male -> filter_complete [label = 'Excluding Missing Data']
+  filter_complete -> filter_outliers [label = 'Excluding Outliers']
+}
+")
+
+# Render the flowchart
+flowchart
+```
+```{r}
+
+```
+
+```{r}
+# Load necessary libraries
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(table1)) install.packages("table1")
+
+library(tidyverse)
+library(table1)
+
+# Load the cleaned dataset
+file_path <- "/Users/ckw/Desktop/MPH 5245/cleaned_heart_data.csv"
+heart_data_clean <- read.csv(file_path)
+
+# Inspect unique values of smoking
+unique(heart_data_clean$smoking)
+
+# Adjust recoding to match unique values
+heart_data_clean <- heart_data_clean %>%
+  mutate(
+    smoking = factor(smoking, 
+                     levels = c(0, 1, 2), # Replace with actual unique values from your dataset
+                     labels = c("Non-Smoker", "Smoker", "Occasional Smoker")), # Adjust labels as needed
+    physical_activity_level = factor(physical_activity_level, levels = c("Sedentary", "Low", "Active")),
+    heart_attack_risk = factor(heart_attack_risk, labels = c("No Risk", "At Risk"))
+  )
+
+# Verify the transformation
+table(heart_data_clean$smoking)
+
+
+# Generate Table 1
+table1(~ age + bmi + cholesterol + exercise_hours_per_week + 
+         physical_activity_level + smoking + heart_attack_risk | 
+         heart_attack_risk, 
+       data = heart_data_clean, 
+       render.continuous = function(x) {
+         sprintf("%0.1f (%0.1f)", mean(x, na.rm = TRUE), sd(x, na.rm = TRUE))
+       })
+```
+
+```{r}
+# Load necessary libraries
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(broom)) install.packages("broom")
+
+library(tidyverse)
+library(broom)
+
+# Ensure the dataset is correctly loaded
+file_path <- "/Users/ckw/Desktop/MPH 5245/cleaned_heart_data.csv"
+heart_data_clean <- read.csv(file_path)
+
+# Recode variables as factors
+heart_data_clean <- heart_data_clean %>%
+  mutate(
+    physical_activity_level = factor(physical_activity_level, levels = c("Sedentary", "Low", "Active")),
+    heart_attack_risk = factor(heart_attack_risk, levels = c(0, 1), labels = c("No Risk", "At Risk"))
+  )
+
+# Check for single-level variables
+table(heart_data_clean$physical_activity_level)
+table(heart_data_clean$heart_attack_risk)
+
+# Logistic regression without the `smoking` variable
+model <- glm(heart_attack_risk ~ physical_activity_level + age + bmi + cholesterol, 
+             family = binomial(link = "logit"), 
+             data = heart_data_clean)
+
+# Summary of the model
+summary(model)
+
+# Extract odds ratios and confidence intervals
+odds_ratios <- exp(cbind(OR = coef(model), confint(model)))
+
+# Display odds ratios
+odds_ratios
+
+# Visualize the regression results (optional)
+ggplot(tidy(model, exponentiate = TRUE, conf.int = TRUE), 
+       aes(x = term, y = estimate, ymin = conf.low, ymax = conf.high)) +
+  geom_pointrange() +
+  coord_flip() +
+  labs(title = "Odds Ratios for Heart Attack Risk",
+       x = "Variables",
+       y = "Odds Ratio") +
+  theme_minimal()
+```
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
